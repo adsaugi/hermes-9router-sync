@@ -90,7 +90,20 @@ def main(verbose=False):
 
     current_models = list(p.get("models") or [])
     
-    if remote_models == current_models and p.get("discover_models") is True:
+    cache = {}
+    if os.path.exists(CACHE_PATH):
+        try:
+            with open(CACHE_PATH, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            cache = {}
+            
+    cache_stale = any(
+        ("router_xaiserv_my_id" in k or "router.xaiserv.my.id" in k) and cache[k].get("models") != remote_models
+        for k in cache if isinstance(cache[k], dict)
+    )
+
+    if remote_models == current_models and not cache_stale and p.get("discover_models") is True:
         if verbose:
             print(f"[SYNC] In sync ({len(remote_models)} models).")
         return 0
@@ -123,6 +136,11 @@ def main(verbose=False):
         "at": time.time(),
         "models": remote_models
     }
+    for k in list(cache.keys()):
+        if k.startswith("custom:") and "router.xaiserv.my.id" in k:
+            if isinstance(cache[k], dict):
+                cache[k]["models"] = remote_models
+                cache[k]["at"] = time.time()
     
     fd2, tmp_cache = tempfile.mkstemp(dir=dir_name, prefix=".cache_sync_tmp_")
     with os.fdopen(fd2, "w", encoding="utf-8") as f:

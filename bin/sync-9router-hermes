@@ -1,2 +1,9 @@
 #!/bin/bash
-exec su - xs -c "/home/xs/.hermes/tools/python-3.14.7+20260901-linux-x64/bin/python3 /home/xs/.hermes/scripts/sync_9router_models.py $*"
+PYTHON="/home/xs/.hermes/tools/python-3.14.7+20260901-linux-x64/bin/python3"
+SCRIPT="/home/xs/.hermes/scripts/sync_9router_models.py"
+
+if [ "$(id -u)" -eq 0 ]; then
+    exec su - xs -c "$PYTHON $SCRIPT $*"
+else
+    exec "$PYTHON" "$SCRIPT" "$@"
+fi
