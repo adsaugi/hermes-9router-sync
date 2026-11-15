@@ -1,0 +1,2 @@
+#!/bin/bash
+exec su - xs -c "/home/xs/.hermes/tools/python-3.14.7+20260901-linux-x64/bin/python3 /home/xs/.hermes/scripts/sync_9router_models.py $*"

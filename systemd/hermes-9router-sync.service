@@ -1,0 +1,16 @@
+[Unit]
+Description=Auto-sync 9Router models to Hermes Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=xs
+Group=xs
+Environment=HOME=/home/xs
+ExecStart=/home/xs/.hermes/tools/python-3.14.7+20260901-linux-x64/bin/python3 /home/xs/.hermes/scripts/sync_9router_models.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

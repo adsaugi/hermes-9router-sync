@@ -1,0 +1,11 @@
+[Unit]
+Description=Run hermes-9router-sync periodically
+After=network.target
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
