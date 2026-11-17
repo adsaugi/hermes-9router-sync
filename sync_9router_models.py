@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Sync models from 9Router to Hermes Agent on vm101.
-Maintains providers.router_xaiserv_my_id.models in config.yaml
-and provider_models_cache.json.
+Sync models from 9Router to:
+1. Hermes Agent (~/.hermes/config.yaml & provider_models_cache.json)
+2. OpenCode (~/.config/opencode/opencode.json)
+3. Claude Code CLI cache (~/.cache/9router_models.txt)
 """
 import os, sys, json, time, tempfile
 import urllib.request
@@ -12,6 +13,9 @@ HERMES_AGENT = "/home/xs/.hermes/hermes-agent"
 CONFIG_PATH = os.path.join(HERMES_DIR, "config.yaml")
 CACHE_PATH = os.path.join(HERMES_DIR, "provider_models_cache.json")
 ENV_PATH = os.path.join(HERMES_DIR, ".env")
+
+OPENCODE_CONFIG_PATH = "/home/xs/.config/opencode/opencode.json"
+CLAUDE_MODELS_CACHE = "/home/xs/.cache/9router_models.txt"
 
 sys.path.insert(0, HERMES_AGENT)
 try:
@@ -42,6 +46,57 @@ def get_api_key(cfg, key_env):
     if not api_key:
         api_key = cfg.get("model", {}).get("api_key")
     return api_key
+
+def sync_opencode(remote_models, verbose=False):
+    if not os.path.exists(OPENCODE_CONFIG_PATH):
+        return
+    try:
+        with open(OPENCODE_CONFIG_PATH, "r", encoding="utf-8") as f:
+            oc_cfg = json.load(f)
+
+        providers = oc_cfg.setdefault("provider", {})
+        p_9router = providers.setdefault("9router", {})
+        provider_models = p_9router.setdefault("models", {})
+
+        current_models = list(provider_models.keys())
+        if set(current_models) == set(remote_models):
+            if verbose:
+                print(f"[SYNC-OPENCODE] In sync ({len(remote_models)} models).")
+            return
+
+        new_models = {}
+        for m in remote_models:
+            new_models[m] = provider_models.get(m, {"name": m})
+        p_9router["models"] = new_models
+
+        dir_name = os.path.dirname(OPENCODE_CONFIG_PATH)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".opencode_sync_tmp_")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(oc_cfg, f, indent=2)
+            f.write("\n")
+        os.replace(tmp_path, OPENCODE_CONFIG_PATH)
+
+        added = set(remote_models) - set(current_models)
+        removed = set(current_models) - set(remote_models)
+        print(f"[SYNC-OPENCODE] OK: {len(remote_models)} models synced to OpenCode (added: {len(added)}, removed: {len(removed)})")
+        if added:
+            print(f"[SYNC-OPENCODE] Added: {list(added)}")
+        if removed:
+            print(f"[SYNC-OPENCODE] Removed: {list(removed)}")
+    except Exception as e:
+        print(f"[SYNC-OPENCODE ERROR] Failed to sync OpenCode: {e}", file=sys.stderr)
+
+def sync_claude_cache(remote_models, verbose=False):
+    try:
+        os.makedirs(os.path.dirname(CLAUDE_MODELS_CACHE), exist_ok=True)
+        with open(CLAUDE_MODELS_CACHE, "w", encoding="utf-8") as f:
+            for m in remote_models:
+                f.write(f"{m}\n")
+        if verbose:
+            print(f"[SYNC-CLAUDE] Cached {len(remote_models)} models for Claude CLI completion.")
+    except Exception as e:
+        if verbose:
+            print(f"[SYNC-CLAUDE ERROR] Failed to write cache: {e}", file=sys.stderr)
 
 def main(verbose=False):
     yaml_obj = YAML()
@@ -88,6 +143,13 @@ def main(verbose=False):
             print("[SYNC] Received empty models list from 9Router, skipping.")
         return 0
 
+    # 1. Sync OpenCode
+    sync_opencode(remote_models, verbose=verbose)
+
+    # 2. Sync Claude cache
+    sync_claude_cache(remote_models, verbose=verbose)
+
+    # 3. Sync Hermes
     current_models = list(p.get("models") or [])
     
     cache = {}
@@ -105,13 +167,13 @@ def main(verbose=False):
 
     if remote_models == current_models and not cache_stale and p.get("discover_models") is True:
         if verbose:
-            print(f"[SYNC] In sync ({len(remote_models)} models).")
+            print(f"[SYNC-HERMES] In sync ({len(remote_models)} models).")
         return 0
 
     added = set(remote_models) - set(current_models)
     removed = set(current_models) - set(remote_models)
 
-    # 1. Update config.yaml atomically
+    # Update config.yaml atomically
     p["models"] = remote_models
     p["discover_models"] = True
     p["models_discovered"] = True
@@ -122,7 +184,7 @@ def main(verbose=False):
         yaml_obj.dump(cfg, f)
     os.replace(tmp_path, CONFIG_PATH)
 
-    # 2. Update provider_models_cache.json
+    # Update provider_models_cache.json
     cache = {}
     if os.path.exists(CACHE_PATH):
         try:
@@ -147,11 +209,11 @@ def main(verbose=False):
         json.dump(cache, f, indent=2)
     os.replace(tmp_cache, CACHE_PATH)
 
-    print(f"[SYNC] OK: {len(remote_models)} models synced from 9Router (added: {len(added)}, removed: {len(removed)})")
+    print(f"[SYNC-HERMES] OK: {len(remote_models)} models synced to Hermes (added: {len(added)}, removed: {len(removed)})")
     if added:
-        print(f"[SYNC] Added: {list(added)}")
+        print(f"[SYNC-HERMES] Added: {list(added)}")
     if removed:
-        print(f"[SYNC] Removed: {list(removed)}")
+        print(f"[SYNC-HERMES] Removed: {list(removed)}")
     return 0
 
 if __name__ == "__main__":
