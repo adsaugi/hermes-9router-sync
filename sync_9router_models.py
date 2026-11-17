@@ -14,7 +14,10 @@ CONFIG_PATH = os.path.join(HERMES_DIR, "config.yaml")
 CACHE_PATH = os.path.join(HERMES_DIR, "provider_models_cache.json")
 ENV_PATH = os.path.join(HERMES_DIR, ".env")
 
-OPENCODE_CONFIG_PATH = "/home/xs/.config/opencode/opencode.json"
+OPENCODE_CONFIG_PATHS = [
+    "/home/xs/.config/opencode/opencode.json",
+    "/home/xs/sessions/opencode.json"
+]
 CLAUDE_MODELS_CACHE = "/home/xs/.cache/9router_models.txt"
 
 sys.path.insert(0, HERMES_AGENT)
@@ -48,43 +51,40 @@ def get_api_key(cfg, key_env):
     return api_key
 
 def sync_opencode(remote_models, verbose=False):
-    if not os.path.exists(OPENCODE_CONFIG_PATH):
-        return
-    try:
-        with open(OPENCODE_CONFIG_PATH, "r", encoding="utf-8") as f:
-            oc_cfg = json.load(f)
+    for cfg_path in OPENCODE_CONFIG_PATHS:
+        if not os.path.exists(cfg_path):
+            continue
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                oc_cfg = json.load(f)
 
-        providers = oc_cfg.setdefault("provider", {})
-        p_9router = providers.setdefault("9router", {})
-        provider_models = p_9router.setdefault("models", {})
+            providers = oc_cfg.setdefault("provider", {})
+            p_9router = providers.setdefault("9router", {})
+            provider_models = p_9router.setdefault("models", {})
 
-        current_models = list(provider_models.keys())
-        if set(current_models) == set(remote_models):
-            if verbose:
-                print(f"[SYNC-OPENCODE] In sync ({len(remote_models)} models).")
-            return
+            current_models = list(provider_models.keys())
+            if set(current_models) == set(remote_models):
+                if verbose:
+                    print(f"[SYNC-OPENCODE] {cfg_path} In sync ({len(remote_models)} models).")
+                continue
 
-        new_models = {}
-        for m in remote_models:
-            new_models[m] = provider_models.get(m, {"name": m})
-        p_9router["models"] = new_models
+            new_models = {}
+            for m in remote_models:
+                new_models[m] = provider_models.get(m, {"name": m})
+            p_9router["models"] = new_models
 
-        dir_name = os.path.dirname(OPENCODE_CONFIG_PATH)
-        fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".opencode_sync_tmp_")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(oc_cfg, f, indent=2)
-            f.write("\n")
-        os.replace(tmp_path, OPENCODE_CONFIG_PATH)
+            dir_name = os.path.dirname(cfg_path)
+            fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".opencode_sync_tmp_")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(oc_cfg, f, indent=2)
+                f.write("\n")
+            os.replace(tmp_path, cfg_path)
 
-        added = set(remote_models) - set(current_models)
-        removed = set(current_models) - set(remote_models)
-        print(f"[SYNC-OPENCODE] OK: {len(remote_models)} models synced to OpenCode (added: {len(added)}, removed: {len(removed)})")
-        if added:
-            print(f"[SYNC-OPENCODE] Added: {list(added)}")
-        if removed:
-            print(f"[SYNC-OPENCODE] Removed: {list(removed)}")
-    except Exception as e:
-        print(f"[SYNC-OPENCODE ERROR] Failed to sync OpenCode: {e}", file=sys.stderr)
+            added = set(remote_models) - set(current_models)
+            removed = set(current_models) - set(remote_models)
+            print(f"[SYNC-OPENCODE] OK: {len(remote_models)} models synced to {cfg_path} (added: {len(added)}, removed: {len(removed)})")
+        except Exception as e:
+            print(f"[SYNC-OPENCODE ERROR] Failed to sync {cfg_path}: {e}", file=sys.stderr)
 
 def sync_claude_cache(remote_models, verbose=False):
     try:
